@@ -104,7 +104,7 @@ def _fetch_label_sections(drug_name: str) -> dict:
         try:
             resp = requests.get(
                 OPENFDA_LABEL,
-                params={"search": f'{field}:"{drug_name}"', "limit": 1},
+                params={"search": f'{field}:"{drug_name}"', "limit": 5},
                 timeout=TIMEOUT,
             )
         except requests.RequestException as exc:
@@ -116,7 +116,20 @@ def _fetch_label_sections(drug_name: str) -> dict:
         if not results:
             continue
 
-        label = results[0]
+        # Prefer a single-ingredient label — a loose search can return a
+        # combination product (e.g. metformin matching ZITUVIMET =
+        # sitagliptin+metformin). Rank candidates: generic name containing
+        # the query, fewest " AND " ingredients, then brand-name match.
+        def rank(cand: dict) -> tuple:
+            generic = " ".join(cand.get("openfda", {}).get("generic_name", [])).lower()
+            brand = " ".join(cand.get("openfda", {}).get("brand_name", [])).lower()
+            q = drug_name.lower()
+            contains = q in generic or q in brand
+            combo = generic.count(" and ") + generic.count(",")
+            return (not contains, combo)
+
+        label = min(results, key=rank)
+
         info = {"drug": drug_name, "matched_on": field}
         names = label.get("openfda", {})
         for key in ("brand_name", "generic_name", "manufacturer_name"):
@@ -140,6 +153,56 @@ def get_fda_label_info(drug_name: str) -> dict:
     plain language.
     """
     return _fetch_label_sections(drug_name)
+
+
+EMERGENCY_RULES = [
+    (
+        ["overdose", "took too many", "too much of", "took too much",
+         "double dose", "whole bottle"],
+        "Possible overdose — call Poison Control at 1-800-222-1222 or emergency services NOW.",
+    ),
+    (
+        ["chest pain", "can't breathe", "cant breathe", "trouble breathing",
+         "throat closing", "face swelling", "swelling of face", "lips swelling"],
+        "Possible emergency symptoms — call 911 / emergency services NOW.",
+    ),
+    (
+        ["suicidal", "kill myself", "hurt myself", "self harm", "end it all",
+         "don't want to live", "want to die"],
+        "Possible crisis — call or text 988 (Suicide & Crisis Lifeline) NOW. Free, 24/7.",
+    ),
+    (
+        ["won't stop bleeding", "severe bleeding", "vomiting blood",
+         "blood in stool", "black stool", "coughing up blood"],
+        "Possible internal bleeding — seek emergency care immediately.",
+    ),
+    (
+        ["fainted", "unconscious", "seizure", "not responding"],
+        "Medical emergency — call 911 / emergency services NOW.",
+    ),
+]
+
+
+@tool
+def check_for_emergency(user_text: str) -> dict:
+    """Screen the patient's message for medical emergencies: overdose,
+    severe symptoms, uncontrolled bleeding, or self-harm. Call this FIRST
+    whenever the user mentions how they feel, symptoms they're
+    experiencing, or taking too much of a medication — before doing any
+    drug lookups. Returns urgent guidance that must be surfaced to the
+    user ahead of everything else.
+    """
+    text = user_text.lower()
+    flags = [msg for keywords, msg in EMERGENCY_RULES
+             if any(k in text for k in keywords)]
+    return {
+        "emergency_detected": bool(flags),
+        "flags": flags,
+        "instruction": (
+            "Surface these warnings FIRST, prominently, before anything else."
+            if flags else "No emergency detected — proceed normally."
+        ),
+    }
 
 
 @tool

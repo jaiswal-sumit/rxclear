@@ -24,7 +24,7 @@ RUNTIME_NAME = "rxclear_agent"
 ROLE_NAME = "rxclear-agent-runtime-role"
 DEPS = ["strands-agents", "bedrock-agentcore", "requests", "pydantic"]
 CODE_FILES = ["main.py"]
-CODE_DIRS = ["src"]
+CODE_DIRS = ["src", "skills"]
 
 ACCOUNT = boto3.client("sts").get_caller_identity()["Account"]
 s3 = boto3.client("s3", region_name=REGION)

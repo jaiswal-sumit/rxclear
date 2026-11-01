@@ -1,5 +1,6 @@
 strands-agents
 bedrock-agentcore
+strands-agents-evals
 streamlit
 requests
 pydantic

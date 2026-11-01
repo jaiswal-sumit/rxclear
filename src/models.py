@@ -1,6 +1,6 @@
 """Structured output schema for the medication safety report."""
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class DrugSummary(BaseModel):
@@ -20,6 +20,12 @@ class DrugSummary(BaseModel):
         description="Brand names / generics this drug may appear under",
     )
 
+    # Models sometimes emit null for empty lists — coerce to [].
+    @field_validator("warnings", "other_names", mode="before")
+    @classmethod
+    def _lists_not_none(cls, v):
+        return v if v is not None else []
+
 
 class InteractionWarning(BaseModel):
     drugs: list[str]
@@ -28,6 +34,11 @@ class InteractionWarning(BaseModel):
     action: str = Field(
         description="What the user should do, e.g. 'call your doctor today'"
     )
+
+    @field_validator("drugs", mode="before")
+    @classmethod
+    def _lists_not_none(cls, v):
+        return v if v is not None else []
 
 
 class MedicationSafetyReport(BaseModel):
@@ -49,3 +60,15 @@ class MedicationSafetyReport(BaseModel):
             "how you take any medication."
         )
     )
+
+    @field_validator(
+        "patient_medication_list",
+        "drugs",
+        "interaction_warnings",
+        "urgent_flags",
+        "questions_for_pharmacist",
+        mode="before",
+    )
+    @classmethod
+    def _lists_not_none(cls, v):
+        return v if v is not None else []

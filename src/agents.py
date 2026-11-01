@@ -8,18 +8,26 @@ Architecture (agents-as-tools):
 """
 
 import os
+from pathlib import Path
 
-from strands import Agent, tool
+from strands import Agent, AgentSkills, tool
 from strands.models import BedrockModel
 
 from .models import MedicationSafetyReport
-from .steering import MedicationWorkflowHandler, RateLimiterHook
+from .steering import (
+    MedicalAdviceGuardrail,
+    MedicationWorkflowHandler,
+    RateLimiterHook,
+)
 from .tools import (
     check_drug_interactions,
+    check_for_emergency,
     get_common_drug_names,
     get_fda_label_info,
     resolve_drug_name,
 )
+
+SKILLS_DIR = str(Path(__file__).resolve().parent.parent / "skills")
 
 # Haiku for fast/cheap specialist work, Sonnet for the orchestrator's
 # synthesis + structured report. Override via env vars.
@@ -118,26 +126,44 @@ ORCHESTRATOR_PROMPT = """You are a medication safety coordinator helping \
 patients understand their prescriptions.
 
 Workflow for every request:
+0. If the user's message mentions symptoms, how they feel, or taking too \
+   much of anything — call check_for_emergency FIRST. If it flags an \
+   emergency, surface those warnings ahead of everything else and follow \
+   the crisis-hotline-protocol skill.
 1. Call lookup_drug_facts with the full medication list.
 2. Call check_interactions_for with the full medication list (if 2+ meds).
 3. Call rewrite_plain_language on the combined clinical findings to make \
    them understandable (use the user's preferred language if given).
-4. Combine everything into a clear medication safety report.
+4. Combine everything into a clear medication safety report — activate \
+   the plain-language-report and fda-interaction-warning skills for \
+   guidance.
 
 Safety rules:
 - NEVER invent dosages, warnings, or interactions — only use tool results.
 - If a drug can't be found, say so and tell the user to check the spelling \
   on their bottle or ask their pharmacist.
 - Flag every high-severity interaction prominently.
+- Never tell the user to start, stop, or change a dose — that is for \
+  their doctor or pharmacist to decide. Frame alternatives as questions \
+  to ask ("ask your doctor whether acetaminophen would be safer"), never \
+  as instructions to take something new.
 - Always end with questions the patient should ask their pharmacist.
 """
 
 
 def build_orchestrator() -> Agent:
+    plugins = [AgentSkills(skills=[SKILLS_DIR]), MedicationWorkflowHandler()]
+    if os.environ.get("RXCLEAR_LLM_STEERING", "1") != "0":
+        plugins.append(MedicalAdviceGuardrail())
     return Agent(
         model=orchestrator_model,
-        tools=[lookup_drug_facts, check_interactions_for, rewrite_plain_language],
-        plugins=[MedicationWorkflowHandler()],
+        tools=[
+            check_for_emergency,
+            lookup_drug_facts,
+            check_interactions_for,
+            rewrite_plain_language,
+        ],
+        plugins=plugins,
         hooks=[RateLimiterHook(max_calls=5)],
         system_prompt=ORCHESTRATOR_PROMPT,
     )

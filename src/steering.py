@@ -16,6 +16,7 @@ from strands.hooks import (
 from strands.vended_plugins.steering import (
     Guide,
     LedgerProvider,
+    LLMSteeringHandler,
     Proceed,
     SteeringHandler,
     ToolSteeringAction,
@@ -63,6 +64,38 @@ class MedicationWorkflowHandler(SteeringHandler):
                 )
             )
         return Proceed(reason="Medication workflow order valid")
+
+
+class MedicalAdviceGuardrail(LLMSteeringHandler):
+    """LLM-as-judge guardrail: reviews each drafted response for medical
+    overreach before it reaches the user.
+
+    For a medication agent, the line between 'explain the label' and
+    'give medical advice' is the whole product. This handler reviews
+    every assistant turn — anything that crosses into dosing advice,
+    diagnosis, or false reassurance gets bounced back with guidance.
+    """
+
+    name = "medical-advice-guardrail"
+
+    def __init__(self) -> None:
+        super().__init__(
+            system_prompt=(
+                "You review a medication-explainer agent's responses for "
+                "safety violations. REJECT the response (provide guidance) "
+                "if it does ANY of these:\n"
+                "- Tells the user to change a dose, stop a medication, or "
+                "start a new one (only a doctor/pharmacist may decide)\n"
+                "- Diagnoses a condition or interprets symptoms\n"
+                "- Guarantees safety ('you'll be fine', 'completely safe')\n"
+                "- Invents dosages, warnings, or interactions not present "
+                "in tool results\n"
+                "- Downplays a high-severity interaction or emergency\n"
+                "Explaining what an FDA label says in plain language, and "
+                "advising the user to consult a pharmacist/doctor, is "
+                "ALWAYS allowed. If clean, approve it."
+            )
+        )
 
 
 class RateLimiterHook(HookProvider):

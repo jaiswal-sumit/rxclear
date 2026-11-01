@@ -13,11 +13,12 @@ and Amazon Bedrock.
 
 ## Why
 
-- Medication errors harm ~1.3 million people in the US every year (FDA).
-- Nearly 9 in 10 US adults struggle with health literacy at some point —
-  prescription labels are written far above the average reading level.
+- Prescription labels are written far above the reading level of most
+  patients — dense clinical text that even careful readers misinterpret.
 - Polypharmacy patients (5+ medications) face the highest interaction risk
-  and are disproportionately elderly, low-income, or non-English-speaking.
+  and are disproportionately elderly or managing chronic conditions.
+- Health literacy is also about language: instructions only help if they
+  arrive in a language the patient actually reads.
 
 RxClear reads a medication list the way a patient would type it — brand
 names, generics, even misspellings — and produces a report anyone can
@@ -35,10 +36,19 @@ understand, in their own language.
   RxNav approximate matching; brand names resolve to generics
 - **Multilingual reports** — the same verified report in Spanish, Hindi,
   Vietnamese, and more
+- **Emergency screening** — a deterministic crisis tool intercepts
+  overdose/symptom/self-harm signals and surfaces hotline guidance before
+  anything else
 - **Structured output** — a typed `MedicationSafetyReport` (Pydantic) with
   urgent flags and suggested pharmacist questions
 - **Deterministic safety controls** — a steering handler enforces
   verify-before-advise ordering in code, not just in the prompt
+- **LLM guardrail** — a second model reviews every response for dosing
+  advice, diagnosis, or false reassurance before it ships
+- **On-demand skills** — `plain-language-report`, `fda-interaction-warning`,
+  and `crisis-hotline-protocol` procedures loaded via `AgentSkills`
+- **Evaluated** — `strands-agents-evals` trajectory + output tests prove
+  the safety controls actually work
 - **Deployable** — runs locally or on Amazon Bedrock AgentCore Runtime as a
   managed, invocable endpoint
 
@@ -61,11 +71,17 @@ agents, each with a narrow job and its own tools.
 │ • alternate names  │ │ • severity rating   │ │ • translation      │
 └───────────────────┘ └────────────────────┘ └────────────────────┘
 
-Safety controls (deterministic, not prompt-based):
+Safety controls (deterministic + judged, not prompt hopes):
+• check_for_emergency — keyword screen for crisis signals; runs FIRST
+  whenever symptoms appear in the patient's message.
 • MedicationWorkflowHandler (steering plugin) — blocks interaction checks
   and plain-language output until FDA label facts have been fetched.
-  Clinical claims can only come from verified tool results.
+• MedicalAdviceGuardrail (LLM steering) — a second model reviews every
+  response for dosing advice, diagnosis, or false reassurance.
+  Disable with RXCLEAR_LLM_STEERING=0.
 • RateLimiterHook — caps each tool at 5 calls per request.
+• AgentSkills — loads SKILL.md procedures (plain-language-report,
+  fda-interaction-warning, crisis-hotline-protocol) only when relevant.
 ```
 
 ### Data sources
@@ -147,7 +163,18 @@ CloudFormation permissions.
 | `ORCHESTRATOR_MODEL` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Orchestrator + structured output |
 | `SPECIALIST_MODEL` | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | Specialist agents |
 | `AWS_REGION` | `us-east-1` | Bedrock region |
+| `RXCLEAR_LLM_STEERING` | `1` | Set `0` to disable the LLM guardrail (faster, cheaper) |
 | `RXCLEAR_ROLE_ARN` | auto-created | Existing AgentCore execution role |
+
+## Evals
+
+```bash
+.venv/bin/python evals/run_evals.py
+```
+
+Three trajectory cases prove the workflow invariants (facts before advice,
+crisis screening fires first on emergencies) and two output cases score
+response quality with an LLM judge.
 
 ## Project layout
 
@@ -156,10 +183,13 @@ CloudFormation permissions.
 ├── cli.py              # CLI entry point
 ├── main.py             # AgentCore Runtime entrypoint
 ├── deploy.py           # CodeZip deploy via control-plane API
+├── evals/
+│   └── run_evals.py    # Trajectory + output evals (strands-agents-evals)
+├── skills/             # SKILL.md procedures loaded via AgentSkills
 └── src/
     ├── agents.py       # Orchestrator + specialist agents (agents-as-tools)
-    ├── tools.py        # RxNav + openFDA tool functions
-    ├── steering.py     # Workflow steering handler + rate-limiter hook
+    ├── tools.py        # RxNav + openFDA tools + emergency screen
+    ├── steering.py     # Workflow + LLM guardrails, rate-limiter hook
     └── models.py       # MedicationSafetyReport schema
 ```
 
