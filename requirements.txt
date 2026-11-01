@@ -1,0 +1,5 @@
+strands-agents
+bedrock-agentcore
+streamlit
+requests
+pydantic
