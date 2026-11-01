@@ -156,6 +156,14 @@ The `agentcore` CLI path (`agentcore create` → `agentcore add agent
 --type byo` → `agentcore deploy`) also works in accounts with
 CloudFormation permissions.
 
+To remove everything `deploy.py` created (runtime, code bucket,
+execution role):
+
+```bash
+.venv/bin/python teardown.py        # prompts for confirmation
+.venv/bin/python teardown.py --yes  # no prompt
+```
+
 ## Configuration
 
 | Env var | Default | Purpose |
@@ -183,6 +191,7 @@ response quality with an LLM judge.
 ├── cli.py              # CLI entry point
 ├── main.py             # AgentCore Runtime entrypoint
 ├── deploy.py           # CodeZip deploy via control-plane API
+├── teardown.py         # Removes all deployed resources
 ├── evals/
 │   └── run_evals.py    # Trajectory + output evals (strands-agents-evals)
 ├── skills/             # SKILL.md procedures loaded via AgentSkills
